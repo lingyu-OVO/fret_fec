@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "电吉他指板学习网站 - Fretboard Lab",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
