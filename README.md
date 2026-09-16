@@ -50,6 +50,10 @@ npm run build:single   # 生成 Fretboard-Lab.html（约 226 KB 自包含单文�
 生成后**双击它就直接进网站**：不需要 dev server、不需要联网、不占端口。
 可以复制到桌面 / U 盘 / 直接发给别人。改过源码后重新跑一次这条命令即可。
 
+> **从 GitHub clone 下来的人注意**：`Fretboard-Lab.html` 是构建产物，按设计不进版本库
+> （见 `.gitignore`），所以 clone 之后没有这个文件，必须先 `npm install && npm run build:single`
+> 才能拿到单文件版。想要在线玩的链接见「部署到线上」一章。
+
 已验证（真实 Chrome，`file://` 协议）：
 `localStorage=ok`、React 成功挂载、`elementFromPoint` 命中 `.fb-hit` 热区、
 连续两次点击让音符数 90 → 91 → 92 且面板同步显示「已标记 2 个音」。
@@ -212,6 +216,61 @@ docs/ARCHITECTURE.md    ★ 完整方案设计与架构（含后端/数据库选
 修法是收起态加 `align-content: start`，让行高只按内容算。
 
 > 注意只改收起态：展开态那点"拉伸"其实是有用的 —— `position: sticky` 的侧栏要靠它才有跟滚动的行程，全局改成 `start` 会让侧栏失去粘性。
+
+---
+
+## 部署到线上
+
+**不需要后端。** 整个 `src/` 里没有任何网络请求（没有 `fetch` / `axios` / `XHR` /
+`WebSocket` / `EventSource`），唯一的持久化是 `localStorage`，且只存主题与侧栏两个偏好
+（见 `src/App.tsx` 的 `THEME_KEY` / `SIDE_KEY`）。三大功能都是确定性算法，在浏览器里
+毫秒级算完 —— 这正是 `docs/ARCHITECTURE.md` 的结论「乐理计算 100% 放前端」。
+
+所以 `npm run build` 产出的 `dist/` 就是一堆纯静态文件（约 74 KB gzip），
+扔到任何静态托管上都能跑。**只有三类数据才需要后端**：账号、收藏与练习记录、
+分享链接的短链 —— 见下一章。
+
+### GitHub Pages（已配好，push 即部署）
+
+`.github/workflows/deploy-pages.yml` 会在 push 到 `main` 时自动 `npm run build`
+并把 `dist/` 发布到 <https://lingyu-OVO.github.io/fret_fec/>。workflow 里的构建步骤
+含 `tsc -b`，类型检查不过就不会部署，等于顺带做了一道 CI 门禁。
+
+首次运行**必须先手动开一次 Pages**：**Settings → Pages → Build and deployment → Source
+选 `GitHub Actions`**（不要选 "Deploy from a branch"，那是旧的静态分支模式，会忽略 workflow
+上传的 artifact）。
+
+> **这一步不能靠 workflow 自动完成。** `actions/configure-pages` 有个 `enablement: true`
+> 选项看似能自动开启，但官方 `action.yml` 写明它
+> 「requires a token other than `GITHUB_TOKEN`」，而 workflow 默认拿到的就是
+> `GITHUB_TOKEN` —— 它永远无法被授予 `administration:write`，强行加上只会得到
+> 403 `Resource not accessible by integration` 并把 build job 搞挂。
+> 所以 workflow 里没写这个选项，开 Pages 是纯粹的一次性手动操作。
+
+> **`vite.config.ts` 里的 `base: './'` 是必须的。** Pages 项目站点在 `/<repo>/` 子路径下，
+> Vite 默认的 `base: '/'` 会让产物引用 `/assets/...`，浏览器把它解析成
+> `https://<user>.github.io/assets/...` → 404 → **白页**。
+> 用相对路径 `'./'` 则对项目站点、自定义域名、Vercel/Netlify 根路径都成立。
+> 这跟上面 `file://` 白页是同一类问题（路径解析），换了层皮 —— 而且它只影响
+> **GitHub Pages 项目站点**，部署在域名根路径的平台不会遇到。
+
+### 其他托管平台
+
+Vercel / Netlify / Cloudflare Pages 都部署在**域名根路径**，默认 `base` 反而是对的。
+它们能自动识别 Vite 项目（构建命令 `npm run build`、输出目录 `dist`），
+连上仓库点两下就完事，比 Pages 少一个开 Pages 的步骤。
+
+### 不想配 CI 的极简方案
+
+`npm run build:single` 产出的 `Fretboard-Lab.html` 实测**零外部资源引用**
+（0 个外部 `script src`、0 个外部 `link href`、不含 `/assets/`），零路径依赖，
+放任何子目录都能跑。把它提交进仓库并开启 Pages，直接访问
+`/fret_fec/Fretboard-Lab.html` 就有一个能玩的在线链接，完全不需要 workflow。
+代价是 228 KB 构建产物入库，改源码后要记得重新生成再提交。
+
+> 两条路线的差别：CI 方案发布的是 `dist/`（ES module，需要 http 环境），
+> 极简方案发布的是内联成传统 `<script>` 的单文件（连 `file://` 都能跑）。
+> 前者是正常的工程做法，后者适合「我就想马上有个链接发给朋友」。
 
 ---
 

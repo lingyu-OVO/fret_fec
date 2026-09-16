@@ -1,0 +1,80 @@
+# push 到 main 时自动构建并部署到 GitHub Pages
+#
+# 为什么需要这个文件：仓库里只有源码，dist/ 是 .gitignore 掉的构建产物。
+# GitHub Pages 只能托管静态文件，所以必须由 CI 跑一次 `npm run build`，
+# 再把产出的 dist/ 作为 artifact 发布出去。
+#
+# vite.config.ts 里 base 设为 './'（相对路径），所以产物对
+# https://<user>.github.io/<repo>/ 这种子路径天然成立，本文件不需要注入 base。
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # 允许在 Actions 页面手动触发，方便调试或重新发布
+  workflow_dispatch:
+
+# GITHUB_TOKEN 的最小权限：读代码 + 写 Pages + 用 OIDC 向 Pages 服务换取部署凭证
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个部署。注意 cancel-in-progress: false ——
+# 部署中途被打断可能让 Pages 停在半发布状态，所以排队而不是抢占。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          # 与本地开发版本一致（node -v = v24.9.0），避免"本地能构建、CI 不能"。
+          # 不用 20：Node 20 已于 2026-04 EOL，24 是当前 Active LTS。
+          # lockfileVersion 3 需要 npm 7+，Node 24 自带的 npm 11 满足。
+          node-version: 24
+          # 缓存 npm 下载目录，key 由 package-lock.json 的哈希决定
+          cache: npm
+
+      # 用 ci 而不是 install：严格按 lockfile 安装，保证构建可复现，
+      # 且不会像 install 那样偷偷改写 package-lock.json
+      - name: 安装依赖
+        run: npm ci
+
+      # 这一步内含 `tsc -b`，类型检查不过就不会部署（等于顺带做了 CI 门禁）
+      - name: 构建
+        run: npm run build
+
+      # 校验 Pages 已启用、且发布源是 "GitHub Actions"，未启用则在这一步快速失败。
+      #
+      # 这里刻意不写 enablement: true。官方 action.yml 明确写着它
+      # 「requires a token other than GITHUB_TOKEN to be provided」，而本 workflow
+      # 不传 token 时默认就是 GITHUB_TOKEN —— 该 token 永远无法被授予
+      # administration:write，所以 enablement 只会换来 403
+      # "Resource not accessible by integration" 并搞挂整个 build job。
+      # 结论：Pages 必须在 Settings → Pages 手动开一次（见 README「部署到线上」）。
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传 dist 作为 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布到 Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

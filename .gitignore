@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# tsc -b 的增量构建缓存，可重新生成
+*.tsbuildinfo
 # npm run build:single 的产物（自包含单文件练琴版），可重新生成
 Fretboard-Lab.html
 .vite/
