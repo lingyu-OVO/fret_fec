@@ -1,0 +1,10 @@
+node_modules/
+dist/
+# npm run build:single 的产物（自包含单文件练琴版），可重新生成
+Fretboard-Lab.html
+.vite/
+.tmp/
+.npm-cache/
+*.local
+.DS_Store
+*.log

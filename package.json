@@ -1,0 +1,30 @@
+{
+  "name": "fret-fec",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "电吉他指板学习网站 - Fretboard Lab",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "build:single": "node scripts/build-single.mjs",
+    "typecheck": "tsc --noEmit",
+    "verify": "esbuild scripts/verify-theory.ts --bundle --platform=node --format=esm --outfile=.tmp/verify.mjs --log-level=warning && node .tmp/verify.mjs",
+    "render-check": "esbuild scripts/render-check.tsx --bundle --platform=node --format=cjs --jsx=automatic --outfile=.tmp/render-check.cjs --log-level=warning && node .tmp/render-check.cjs",
+    "smoke": "node scripts/smoke.mjs",
+    "browser-test": "node scripts/browser-test.mjs",
+    "check": "npm run typecheck && npm run verify && npm run render-check"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

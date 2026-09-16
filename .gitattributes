@@ -1,0 +1,20 @@
+# 仓库内统一存 LF，检出时按平台还原，避免 Windows/macOS 协作时整文件 diff
+* text=auto
+
+# Windows 批处理必须是 CRLF，否则 goto/label 等语法可能出错
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 显式声明二进制，禁止任何换行符转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# 语言统计时把构建产物与 lockfile 排除，GitHub 首页语言条更准确
+Fretboard-Lab.html linguist-generated
+package-lock.json linguist-generated
