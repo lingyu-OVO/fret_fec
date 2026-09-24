@@ -12,7 +12,14 @@ import { MiniFretboard } from '../src/components/MiniFretboard'
 import { ExplorePanel } from '../src/components/ExplorePanel'
 import { ScalePanel } from '../src/components/ScalePanel'
 import { ChordPanel } from '../src/components/ChordPanel'
-import { TUNING_BY_ID } from '../src/theory/tunings'
+import { TuningPanel } from '../src/components/TuningPanel'
+import {
+  makeCustomTuning,
+  MAX_STRINGS,
+  MIN_STRINGS,
+  resizeStrings,
+  TUNING_BY_ID,
+} from '../src/theory/tunings'
 import { findVoicings } from '../src/theory/voicings'
 import { CHORD_BY_ID } from '../src/theory/chords'
 
@@ -293,15 +300,59 @@ try {
   problems.push(`  ✗ Fretboard/Mini 渲染抛异常：${(e as Error).message}`)
 }
 
-// ── 6. 所有调弦 × 所有模式都不炸 ──────────────────────────
+// ── 6. 所有调弦 × 两种调弦模式都不炸 ──────────────────────
 try {
-  let n = 0
+  const mark: FretMark[] = [{ stringIdx: 0, fret: 2, label: 'X', variant: 'tone' }]
   for (const t of Object.values(TUNING_BY_ID)) {
-    const m: FretMark[] = [{ stringIdx: 0, fret: 2, label: 'X', variant: 'tone' }]
-    renderToStaticMarkup(<Fretboard tuning={t} startFret={0} fretCount={12} marks={m} interactive onCellClick={noop} />)
-    n++
+    renderToStaticMarkup(<Fretboard tuning={t} startFret={0} fretCount={12} marks={mark} interactive onCellClick={noop} />)
   }
-  console.log(`【8】全部 ${n} 种调弦渲染成功（含 7 弦与 4 弦贝斯）`)
+
+  // 自由调弦：4~7 弦每种弦数，指板弦栏行数与面板选弦器行数都必须等于弦数。
+  // 这两处都按 tuning.strings.length 渲染，弦数一变就是最容易漏改的地方。
+  for (let count = MIN_STRINGS; count <= MAX_STRINGS; count++) {
+    const custom = makeCustomTuning(resizeStrings(std.strings, count))
+
+    const boardHtml = renderToStaticMarkup(
+      <Fretboard tuning={custom} startFret={0} fretCount={12} marks={[]} interactive onCellClick={noop} />,
+    )
+    const railRows = countOf(boardHtml, 'class="fb-stringlabel"')
+    mustTrue(`自由调弦 ${count} 弦：指板弦栏有 ${count} 行`, railRows === count, `实际 ${railRows} 行`)
+
+    const panelHtml = renderToStaticMarkup(
+      <TuningPanel
+        mode="free"
+        tuningId="standard-e"
+        tuning={custom}
+        customStrings={custom.strings}
+        preferFlat={false}
+        onChangeMode={noop}
+        onChangeTuningId={noop}
+        onChangeStrings={noop}
+      />,
+    )
+    const pickRows = countOf(panelHtml, 'class="string-pick"')
+    mustTrue(`自由调弦 ${count} 弦：面板有 ${count} 个选弦器`, pickRows === count, `实际 ${pickRows} 个`)
+  }
+
+  // 固定调弦模式的面板：显示出调弦名、说明和从低到高的音高
+  const fixedHtml = renderToStaticMarkup(
+    <TuningPanel
+      mode="fixed"
+      tuningId="drop-c"
+      tuning={TUNING_BY_ID['drop-c']}
+      customStrings={resizeStrings(std.strings, 6)}
+      preferFlat={false}
+      onChangeMode={noop}
+      onChangeTuningId={noop}
+      onChangeStrings={noop}
+    />,
+  )
+  must('调弦面板（固定）显示调弦名与音高', fixedHtml, ['Drop C', 'C2 G2 C3 F3 A3 D4'])
+  must('调弦面板（固定）两种模式都列出', fixedHtml, ['固定调弦', '自由调弦'])
+  mustTrue('固定模式下不渲染逐弦选弦器', countOf(fixedHtml, 'class="string-pick"') === 0)
+
+  const fixedCount = Object.keys(TUNING_BY_ID).length
+  console.log(`【8】全部 ${fixedCount} 种固定调弦 + ${MIN_STRINGS}~${MAX_STRINGS} 弦自由调弦渲染成功`)
   pass++
 } catch (e) {
   fail++

@@ -171,6 +171,23 @@ function click(el: HTMLElement | null): boolean {
   return true
 }
 
+/**
+ * 改 <select> 的值并触发 React 的 onChange。
+ *
+ * 不能直接写 el.value = x：React 在 select/input 上挂了 value tracker，
+ * 它判断「值没变化」就不会派发 change，测试会静默地什么都不发生（假通过）。
+ * 必须取原型上的原生 setter 绕开 tracker。
+ */
+function setSelectValue(el: HTMLSelectElement | null, value: string): boolean {
+  if (!el) return false
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
+  flushSync(() => {
+    setter?.call(el, value)
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  return true
+}
+
 function sel<T extends Element = HTMLElement>(q: string): T | null {
   return document.querySelector<T>(q)
 }
@@ -595,6 +612,98 @@ try {
     '展开后指板尺寸逐像素还原',
     openSize !== null && restored !== null && Math.abs(restored.w - openSize.w) <= 1 && Math.abs(restored.h - openSize.h) <= 1,
     `${restored ? `${restored.w}×${restored.h}` : 'n/a'} vs ${openSize ? `${openSize.w}×${openSize.h}` : 'n/a'}`,
+  )
+  // ── ⑧ 调弦：固定 / 自由两种模式 ─────────────────────────
+  // 这一段在真实 DOM 上走完「切模式 → 改弦数 → 改音高 → 来回切」，
+  // SSR 渲染检查只能证明「渲染得出来」，这里证明「点了真的会动」。
+  section('调弦面板（固定 / 自由）')
+
+  const panelTitles = all('.panel-title').map((el) => (el.textContent ?? '').trim())
+  ok('右侧栏出现「调弦」面板', panelTitles.includes('调弦'), `面板：${panelTitles.join(' / ')}`)
+  ok(
+    '调弦面板排在「全局显示选项」之前',
+    panelTitles.indexOf('调弦') >= 0 && panelTitles.indexOf('调弦') < panelTitles.indexOf('全局显示选项'),
+    `面板：${panelTitles.join(' / ')}`,
+  )
+
+  const fixedTab = findByText('.segmented-item', '固定调弦')
+  const freeTab = findByText('.segmented-item', '自由调弦')
+  ok('两种调弦模式都有按钮', fixedTab !== null && freeTab !== null)
+  ok('默认停在固定调弦', fixedTab?.classList.contains('is-active') === true)
+  ok('固定模式下没有逐弦选弦器', all('.string-pick').length === 0)
+
+  const tuningGroups = all('#side-panels optgroup').map((g) => g.getAttribute('label') ?? '')
+  ok(
+    '调弦下拉按「六弦吉他 / 七弦吉他 / 贝斯」分组',
+    ['六弦吉他', '七弦吉他', '贝斯'].every((g) => tuningGroups.includes(g)),
+    `实际 ${tuningGroups.join(' / ')}`,
+  )
+
+  const tuningNames = all<HTMLOptionElement>('#side-panels select[aria-label="选择调弦"] option').map(
+    (o) => (o.textContent ?? '').trim(),
+  )
+  ok('新增的五弦贝斯已入列', tuningNames.includes('贝斯五弦'), tuningNames.join(' / '))
+  ok('新增的六弦 Drop C 已入列', tuningNames.includes('Drop C'))
+  ok(
+    '七弦吉他有两种调弦',
+    tuningNames.includes('七弦标准 B') && tuningNames.includes('七弦 Drop A'),
+    tuningNames.join(' / '),
+  )
+
+  // 先把固定调弦定成标准调弦 E，后面「自由模式拿固定调弦打底」才有确定基准。
+  // 这一步同时也验证了固定调弦的下拉真的能改。
+  const fixedSel = sel<HTMLSelectElement>('#side-panels select[aria-label="选择调弦"]')
+  ok('找到固定调弦下拉', fixedSel !== null)
+  setSelectValue(fixedSel, 'standard-e')
+
+  // 切到自由调弦
+  click(freeTab)
+  ok('切换后「自由调弦」高亮', findByText('.segmented-item', '自由调弦')?.classList.contains('is-active') === true)
+  ok('顶栏出现自由调弦指示器', findByText('.chip', '自由调弦') !== null)
+
+  let picks = all<HTMLSelectElement>('.string-pick select')
+  ok('自由模式渲染出 6 个选弦器（跟着当前固定调弦的弦数）', picks.length === 6, `实际 ${picks.length}`)
+  ok(
+    '选弦器按「1 弦在上」排列，且值就是标准调弦 EADGBE',
+    picks.map((s) => s.value).join(',') === '64,59,55,50,45,40',
+    `实际 ${picks.map((s) => s.value).join(',')}`,
+  )
+  ok(
+    '第一行标签是 1 弦（最高音弦）',
+    (all('.string-pick-label')[0]?.textContent ?? '').trim() === '1 弦',
+    `实际 ${(all('.string-pick-label')[0]?.textContent ?? '').trim()}`,
+  )
+
+  // 弦数 6 → 7：应在最低音侧补一根低四度的弦（B1 = 35）
+  const countSel = sel<HTMLSelectElement>('select[aria-label="自由调弦弦数"]')
+  ok('找到弦数选择器', countSel !== null)
+  setSelectValue(countSel, '7')
+  picks = all<HTMLSelectElement>('.string-pick select')
+  ok('弦数改为 7 后面板出现 7 个选弦器', picks.length === 7, `实际 ${picks.length}`)
+  ok(
+    '新增的是最低音弦 B1（低四度），不是高音弦',
+    picks[picks.length - 1]?.value === '35',
+    `实际 ${picks[picks.length - 1]?.value}`,
+  )
+
+  // 改一根弦的音高 → 面板脚注的音名列表必须跟着变
+  setSelectValue(picks[picks.length - 1], '33')
+  const footText = all('#side-panels .panel-foot').map((p) => p.textContent ?? '').join(' ')
+  ok(
+    '最低弦改成 A1 后脚注显示 A1 E2 A2 D3 G3 B3 E4',
+    footText.includes('A1 E2 A2 D3 G3 B3 E4'),
+    footText.slice(0, 140),
+  )
+
+  // 来回切模式：用户逐弦调好的结果不能被固定调弦冲掉
+  click(findByText('.segmented-item', '固定调弦'))
+  ok('切回固定后逐弦选弦器消失', all('.string-pick').length === 0)
+  click(findByText('.segmented-item', '自由调弦'))
+  const picksAgain = all<HTMLSelectElement>('.string-pick select')
+  ok(
+    '来回切换后逐弦设置被保留',
+    picksAgain.length === 7 && picksAgain[6]?.value === '33',
+    `实际 ${picksAgain.length} 根，最低弦 ${picksAgain[6]?.value}`,
   )
 } catch (e) {
   failures.push(`测试脚本抛异常：${(e as Error).message}`)

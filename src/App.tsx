@@ -6,10 +6,19 @@ import { Chip, Select, Switch } from './components/Controls'
 import { ExplorePanel } from './components/ExplorePanel'
 import type { FretMark } from './components/Fretboard'
 import { ScalePanel, POSITION_WINDOWS } from './components/ScalePanel'
+import { TuningPanel } from './components/TuningPanel'
 import { CHORD_BY_ID, identifyChord, intervalToDegree, spellRoot } from './theory/chords'
 import { KEY_CHOICES, defaultSpell, midiToOctave, pc as toPc } from './theory/notes'
 import { buildScale, SCALE_BY_ID, SCALES } from './theory/scales'
-import { noteAt, stringLabel, TUNINGS, TUNING_BY_ID } from './theory/tunings'
+import {
+  makeCustomTuning,
+  noteAt,
+  stringLabel,
+  stringsOf,
+  TUNINGS,
+  TUNING_BY_ID,
+  type TuningMode,
+} from './theory/tunings'
 import { findVoicings, type Voicing } from './theory/voicings'
 import { parseUrl, syncUrl } from './state/url'
 
@@ -104,6 +113,12 @@ export default function App() {
   const [side, setSide] = useState<SideState>(initialSide)
   const [cols, setCols] = useState<Cols>('1')
   const [tuningId, setTuningId] = useState(INIT.tuningId ?? 'standard-e')
+  const [tuningMode, setTuningMode] = useState<TuningMode>(INIT.tuningMode ?? 'fixed')
+  const [customStrings, setCustomStrings] = useState<number[]>(
+    INIT.customStrings ?? stringsOf(TUNING_BY_ID['standard-e']),
+  )
+  /** 用户是否亲手调过自由调弦。没调过时进自由模式会用当前固定调弦打底 */
+  const [customTouched, setCustomTouched] = useState(Boolean(INIT.customStrings))
   const [fretCount, setFretCount] = useState(INIT.fretCount ?? 15)
   const [startFret, setStartFret] = useState(INIT.startFret ?? 0)
   const [preferFlat, setPreferFlat] = useState(INIT.preferFlat ?? false)
@@ -147,7 +162,33 @@ export default function App() {
     })
   }, [])
 
-  const tuning = TUNING_BY_ID[tuningId]
+  const fixedTuning = TUNING_BY_ID[tuningId] ?? TUNINGS[0]
+
+  /**
+   * 当前生效的调弦（固定模式取调弦表，自由模式按用户输入构造）。
+   *
+   * 必须 useMemo：下游的和弦指型搜索以 tuning 为依赖，
+   * 要是每次渲染都给出新对象，那块 findVoicings 会被整片打掉重算。
+   */
+  const tuning = useMemo(
+    () => (tuningMode === 'free' ? makeCustomTuning(customStrings, preferFlat) : fixedTuning),
+    [tuningMode, customStrings, preferFlat, fixedTuning],
+  )
+
+  const handleTuningMode = useCallback(
+    (next: TuningMode) => {
+      // 首次进自由模式时拿当前固定调弦打底，免得突然冒出一块和刚才毫无关系的指板；
+      // 调过之后就不再覆盖，否则来回切一次就把用户逐弦调好的结果全冲掉。
+      if (next === 'free' && !customTouched) setCustomStrings(stringsOf(fixedTuning))
+      setTuningMode(next)
+    },
+    [customTouched, fixedTuning],
+  )
+
+  const handleCustomStrings = useCallback((next: number[]) => {
+    setCustomTouched(true)
+    setCustomStrings(next)
+  }, [])
 
   // ── 主题落到 <html> 上并持久化 ──
   // 用 useLayoutEffect：主题属性要在浏览器绘制前就写好，避免亮→暗闪一下；
@@ -537,6 +578,8 @@ export default function App() {
       mode,
       theme,
       tuningId,
+      tuningMode,
+      customStrings,
       fretCount,
       startFret,
       preferFlat,
@@ -552,7 +595,7 @@ export default function App() {
       chordSub,
       notes: active && (active.mode === 'explore' || active.mode === 'chord') ? active.selection : [],
     })
-  }, [mode, theme, tuningId, fretCount, startFret, preferFlat, boards, chordSub, active])
+  }, [mode, theme, tuningId, tuningMode, customStrings, fretCount, startFret, preferFlat, boards, chordSub, active])
 
   // ══════════════════════════════════════════════════════════
   // 渲染
@@ -602,19 +645,16 @@ export default function App() {
         </nav>
 
         <div className="topbar-right">
-          <label className="mini-field">
-            <span>调弦</span>
-            <Select
-              value={tuningId}
-              onChange={setTuningId}
-              options={TUNINGS.map((t) => ({
-                value: t.id,
-                label: t.name,
-                group: t.kind === 'guitar' ? '吉他' : '贝斯',
-              }))}
-              ariaLabel="选择调弦"
-            />
-          </label>
+          {/* 调弦控件已经移到右侧面板，这里只留一个指示器。
+              不能干脆不放：右侧面板收起时 .side-col 是 display:none，
+              面板里所有信息都看不见，没有这个 Chip 就不知道当前用的什么调弦。 */}
+          <Chip
+            active={tuningMode === 'free'}
+            onClick={() => setSide('open')}
+            title="到右侧面板调整调弦（固定调弦 / 自由调弦）"
+          >
+            {tuningMode === 'free' ? '自由调弦' : tuning.name}
+          </Chip>
           <label className="mini-field">
             <span>品数</span>
             <Select
@@ -854,6 +894,17 @@ export default function App() {
               onChangeParseInput={setParseInput}
             />
           )}
+
+          <TuningPanel
+            mode={tuningMode}
+            tuningId={tuningId}
+            tuning={tuning}
+            customStrings={customStrings}
+            preferFlat={preferFlat}
+            onChangeMode={handleTuningMode}
+            onChangeTuningId={setTuningId}
+            onChangeStrings={handleCustomStrings}
+          />
 
           <section className="panel">
             <header className="panel-head">

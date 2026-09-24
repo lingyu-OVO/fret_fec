@@ -658,6 +658,15 @@ input, select { font-family: inherit; }
 .text-input.is-invalid { border-color: var(--warn); }
 .mini-field .select { padding: 7px 9px; font-size: 12px; width: auto; min-width: 96px; }
 
+/* ── 自由调弦：逐弦音高选择器 ─────────────────────────── */
+
+/* 行序是高音弦在上、低音弦在下，和指板的视觉方向一致（顺序由组件 reverse 决定） */
+.string-picks { display: flex; flex-direction: column; gap: 6px; }
+.string-pick { display: grid; grid-template-columns: 46px minmax(0, 1fr); align-items: center; gap: 9px; }
+.string-pick-label { font-size: 11.5px; font-weight: 600; color: var(--text-mute); text-align: right; white-space: nowrap; }
+/* 最多 7 行，把下拉压扁一点，否则面板会被撑得很长 */
+.string-pick .select { padding: 6px 9px; font-size: 12.5px; }
+
 .segmented { display: flex; gap: 3px; padding: 3px; background: var(--bg-soft); border: 1px solid var(--border-soft); border-radius: 10px; flex-wrap: wrap; }
 .segmented-item {
   border: 0; background: transparent; color: var(--text-dim);

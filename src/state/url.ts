@@ -11,7 +11,12 @@
 
 import { parseNoteName } from '../theory/notes'
 import { SCALE_BY_ID } from '../theory/scales'
-import { TUNING_BY_ID } from '../theory/tunings'
+import {
+  clampStrings,
+  MIN_STRINGS,
+  TUNING_BY_ID,
+  type TuningMode,
+} from '../theory/tunings'
 import { parseChordSymbol } from '../theory/chords'
 
 export type Mode = 'explore' | 'scale' | 'chord'
@@ -33,6 +38,10 @@ export interface ParsedUrl {
   mode?: Mode
   theme?: Theme
   tuningId?: string
+  /** 调弦模式：固定调弦 / 自由调弦 */
+  tuningMode?: TuningMode
+  /** 自由调弦逐弦音高（MIDI，低音弦 → 高音弦） */
+  customStrings?: number[]
   fretCount?: number
   startFret?: number
   preferFlat?: boolean
@@ -47,6 +56,9 @@ export interface UrlSnapshot {
   mode: Mode
   theme: Theme
   tuningId: string
+  tuningMode: TuningMode
+  /** 自由调弦的弦音高。仅在自由模式下写入 URL —— 固定模式下它不影响显示，写进去只会让链接变长 */
+  customStrings: number[]
   fretCount: number
   startFret: number
   preferFlat: boolean
@@ -84,6 +96,21 @@ export function parseUrl(search: string): ParsedUrl {
 
   const tuning = q.get('tuning')
   if (tuning && TUNING_BY_ID[tuning]) out.tuningId = tuning
+
+  const tmode = q.get('tmode')
+  if (tmode === 'fixed' || tmode === 'free') out.tuningMode = tmode
+
+  // 自由调弦的逐弦音高，形如 strings=36,43,48,53,57,62
+  const strings = q.get('strings')
+  if (strings) {
+    const list = strings
+      .split(',')
+      .map((tok) => (tok.trim() === '' ? NaN : Number(tok)))
+      .filter((n) => Number.isInteger(n))
+    const clean = clampStrings(list)
+    // 弦数不足 4 根就整条丢弃：半截链接会造出一块没法用的指板，不如退回默认
+    if (clean.length >= MIN_STRINGS) out.customStrings = clean
+  }
 
   const frets = Number(q.get('frets'))
   if (FRET_COUNTS.includes(frets)) out.fretCount = frets
@@ -161,6 +188,10 @@ export function syncUrl(snap: UrlSnapshot): void {
   q.set('mode', snap.mode)
   q.set('theme', snap.theme)
   q.set('tuning', snap.tuningId)
+  q.set('tmode', snap.tuningMode)
+  if (snap.tuningMode === 'free' && snap.customStrings.length > 0) {
+    q.set('strings', snap.customStrings.join(','))
+  }
   q.set('frets', String(snap.fretCount))
   q.set('start', String(snap.startFret))
   q.set('flat', snap.preferFlat ? '1' : '0')

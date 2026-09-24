@@ -8,8 +8,22 @@
 import { buildScale, SCALE_BY_ID } from '../src/theory/scales'
 import { identifyChord, parseChordSymbol } from '../src/theory/chords'
 import { findVoicings, voicingToTabText } from '../src/theory/voicings'
-import { TUNING_BY_ID } from '../src/theory/tunings'
+import {
+  clampStrings,
+  makeCustomTuning,
+  MAX_STRING_MIDI,
+  MAX_STRINGS,
+  midiNoteName,
+  MIN_STRING_MIDI,
+  MIN_STRINGS,
+  resizeStrings,
+  stringPitchOptions,
+  TUNINGS,
+  TUNING_BY_ID,
+  tuningGroup,
+} from '../src/theory/tunings'
 import { KEY_CHOICES } from '../src/theory/notes'
+import { parseUrl, syncUrl } from '../src/state/url'
 
 let pass = 0
 let fail = 0
@@ -248,6 +262,131 @@ checkTrue('关闭低音限制后存在非根音低音指型（转位）', inv.so
 const seven = TUNING_BY_ID['seven-string']
 const sevenV = findVoicings({ id: 'maj', suffix: '', nameZh: '', category: 'triad', intervals: [0, 4, 7], essential: [0, 4], priority: 100 }, 0, seven, { limit: 10 })
 checkTrue('七弦吉他指型生成正常', sevenV.length > 0)
+
+// ─────────────────────────────────────────────────────────
+console.log('\n【5】调弦表与自由调弦')
+// ─────────────────────────────────────────────────────────
+
+// 每条调弦的弦数、音高都必须是「低音弦 → 高音弦」严格递增的合理值
+for (const t of TUNINGS) {
+  checkTrue(`${t.id}: 弦数在 ${MIN_STRINGS}~${MAX_STRINGS} 之间`, t.strings.length >= MIN_STRINGS && t.strings.length <= MAX_STRINGS, `实际 ${t.strings.length}`)
+  checkTrue(`${t.id}: 音高严格递增`, t.strings.every((m, i) => i === 0 || m > t.strings[i - 1]), t.strings.join(','))
+  checkTrue(`${t.id}: 音高在可选范围内`, t.strings.every((m) => m >= MIN_STRING_MIDI && m <= MAX_STRING_MIDI), t.strings.join(','))
+}
+
+checkTrue('TUNING_BY_ID 覆盖全部调弦', TUNINGS.every((t) => TUNING_BY_ID[t.id] === t))
+checkTrue('调弦 id 不重复', new Set(TUNINGS.map((t) => t.id)).size === TUNINGS.length)
+checkTrue("没有调弦占用 'custom' 这个 id", !TUNINGS.some((t) => t.id === 'custom'))
+
+// 新增的三条：音高逐个核对，手算错了这里会立刻炸
+check('五弦贝斯 B0 E1 A1 D2 G2', TUNING_BY_ID['bass-5'].strings, [23, 28, 33, 38, 43])
+check('六弦 Drop C：CGCFAD', TUNING_BY_ID['drop-c'].strings, [36, 43, 48, 53, 57, 62])
+check('七弦 Drop A：AEADGBE', TUNING_BY_ID['seven-string-drop-a'].strings, [33, 40, 45, 50, 55, 59, 64])
+check('七弦标准 B 仍然是 BEADGBE', TUNING_BY_ID['seven-string'].strings, [35, 40, 45, 50, 55, 59, 64])
+
+// 分组名决定下拉框的 optgroup
+check('分组：六弦吉他', tuningGroup(TUNING_BY_ID['standard-e']), '六弦吉他')
+check('分组：六弦 Drop C 仍归六弦', tuningGroup(TUNING_BY_ID['drop-c']), '六弦吉他')
+check('分组：七弦吉他', tuningGroup(TUNING_BY_ID['seven-string']), '七弦吉他')
+check('分组：七弦 Drop A', tuningGroup(TUNING_BY_ID['seven-string-drop-a']), '七弦吉他')
+check('分组：贝斯', tuningGroup(TUNING_BY_ID['bass-4']), '贝斯')
+check('分组：五弦贝斯', tuningGroup(TUNING_BY_ID['bass-5']), '贝斯')
+
+// MIDI → 音名（八度必须是科学音高记号法，C4 = 中央 C）
+check('MIDI 40 = E2', midiNoteName(40, false), 'E2')
+check('MIDI 64 = E4', midiNoteName(64, false), 'E4')
+check('MIDI 23 = B0', midiNoteName(23, false), 'B0')
+check('MIDI 61 升号拼写 = C#4', midiNoteName(61, false), 'C#4')
+check('MIDI 61 降号拼写 = Db4', midiNoteName(61, true), 'Db4')
+
+// 自由调弦：越界值必须被钳住，条数必须被截断
+check('clampStrings 钳下限', clampStrings([0]), [MIN_STRING_MIDI])
+check('clampStrings 钳上限', clampStrings([200]), [MAX_STRING_MIDI])
+check('clampStrings 截断超长输入', clampStrings([40, 45, 50, 55, 59, 64, 40, 45]).length, MAX_STRINGS)
+check('clampStrings 四舍五入', clampStrings([40.6]), [41])
+
+const custom6 = makeCustomTuning([36, 43, 48, 53, 57, 62])
+check('自由调弦 id 固定为 custom', custom6.id, 'custom')
+check('自由调弦弦数正确', custom6.strings.length, 6)
+check('自由调弦名字带音名', custom6.name, '自由调弦 C G C F A D')
+check('自由调弦 desc 带八度', custom6.desc, '6 弦 · C2 G2 C3 F3 A3 D4')
+
+// 换弦数时的补弦策略：低音侧补低四度，正好对上真实的七弦 / 五弦贝斯
+check('六弦 → 七弦补出低音 B', resizeStrings(TUNING_BY_ID['standard-e'].strings, 7), [35, 40, 45, 50, 55, 59, 64])
+check('四弦贝斯 → 五弦补出低音 B', resizeStrings(TUNING_BY_ID['bass-4'].strings, 5), [23, 28, 33, 38, 43])
+check('七弦 → 六弦砍掉最低那根', resizeStrings(TUNING_BY_ID['seven-string'].strings, 6), [40, 45, 50, 55, 59, 64])
+check('弦数被钳在合法区间（下）', resizeStrings([40, 45, 50, 55, 59, 64], 1).length, MIN_STRINGS)
+check('弦数被钳在合法区间（上）', resizeStrings([40, 45, 50, 55, 59, 64], 99).length, MAX_STRINGS)
+
+// 选弦器候选表
+const pitchOpts = stringPitchOptions(false)
+check('候选音高数量', pitchOpts.length, MAX_STRING_MIDI - MIN_STRING_MIDI + 1)
+check('候选音高首个', pitchOpts[0], { value: MIN_STRING_MIDI, label: 'E0', group: '八度 0' })
+check('候选音高末个', pitchOpts[pitchOpts.length - 1], { value: MAX_STRING_MIDI, label: 'E5', group: '八度 5' })
+
+// 新调弦下指型生成不能崩（低音 B 弦会引入新的低音候选）
+const majDef = { id: 'maj', suffix: '', nameZh: '', category: 'triad' as const, intervals: [0, 4, 7], essential: [0, 4], priority: 100 }
+checkTrue('五弦贝斯指型生成正常', findVoicings(majDef, 0, TUNING_BY_ID['bass-5'], { limit: 10 }).length > 0)
+checkTrue('Drop C 指型生成正常', findVoicings(majDef, 0, TUNING_BY_ID['drop-c'], { limit: 10 }).length > 0)
+checkTrue('七弦 Drop A 指型生成正常', findVoicings(majDef, 0, TUNING_BY_ID['seven-string-drop-a'], { limit: 10 }).length > 0)
+checkTrue('自由调弦下指型生成正常', findVoicings(majDef, 0, custom6, { limit: 10 }).length > 0)
+
+// ─────────────────────────────────────────────────────────
+console.log('\n【6】URL 状态编解码（分享链接往返）')
+// ─────────────────────────────────────────────────────────
+
+// syncUrl 依赖 window，这里搭一个最小的假 window 把写出的 URL 截下来，
+// 再喂回 parseUrl —— 这样测的才是真正的往返一致性，而不是各自单测。
+let captured = ''
+;(globalThis as unknown as { window: unknown }).window = {
+  location: { pathname: '/fret_fec/', search: '' },
+  history: {
+    replaceState: (_state: unknown, _title: unknown, url: string) => {
+      captured = url
+    },
+  },
+}
+
+const snapOf = (over: Partial<Parameters<typeof syncUrl>[0]>) => ({
+  mode: 'explore' as const,
+  theme: 'dark' as const,
+  tuningId: 'drop-c',
+  tuningMode: 'fixed' as const,
+  customStrings: [36, 43, 48, 53, 57, 62],
+  fretCount: 15,
+  startFret: 0,
+  preferFlat: false,
+  scaleBoards: [],
+  chordBoards: [],
+  chordSub: 'identify' as const,
+  notes: [],
+  ...over,
+})
+
+const queryOf = () => captured.split('?')[1] ?? ''
+
+// 固定模式
+syncUrl(snapOf({}))
+check('固定模式写入 tuning', parseUrl(queryOf()).tuningId, 'drop-c')
+check('固定模式写入 tmode', parseUrl(queryOf()).tuningMode, 'fixed')
+check('固定模式不写 strings（链接不该被无用的弦高撑长）', queryOf().includes('strings='), false)
+
+// 自由模式：写进去再读回来，必须一模一样
+syncUrl(snapOf({ tuningMode: 'free', customStrings: [23, 28, 33, 38, 43] }))
+check('自由模式写入 tmode=free', parseUrl(queryOf()).tuningMode, 'free')
+check('自由模式 strings 往返一致', parseUrl(queryOf()).customStrings, [23, 28, 33, 38, 43])
+
+syncUrl(snapOf({ tuningMode: 'free', customStrings: [33, 40, 45, 50, 55, 59, 64] }))
+check('自由模式七弦往返一致', parseUrl(queryOf()).customStrings, [33, 40, 45, 50, 55, 59, 64])
+
+// 脏链接的兜底
+check('弦数不足 4 根整条丢弃', parseUrl('strings=36,43,48').customStrings, undefined)
+check('非数字 token 被过滤', parseUrl('strings=40,xx,50,55').customStrings, undefined)
+check('越界音高被钳进合法范围', parseUrl('tmode=free&strings=0,200,300,400').customStrings, [MIN_STRING_MIDI, MAX_STRING_MIDI, MAX_STRING_MIDI, MAX_STRING_MIDI])
+check('超过 7 根被截断', parseUrl('strings=40,45,50,55,59,64,40,45,50').customStrings?.length, MAX_STRINGS)
+check('非法 tmode 被忽略', parseUrl('tmode=bogus').tuningMode, undefined)
+check('未知 tuning id 被忽略', parseUrl('tuning=not-a-tuning').tuningId, undefined)
+check('已知 tuning id 被接受', parseUrl('tuning=seven-string-drop-a').tuningId, 'seven-string-drop-a')
 
 // ─────────────────────────────────────────────────────────
 console.log('\n' + '═'.repeat(62))
