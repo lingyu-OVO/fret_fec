@@ -6,6 +6,7 @@
   "description": "电吉他指板学习网站 - Fretboard Lab",
   "license": "MIT",
   "scripts": {
+    "predev": "node scripts/build-single.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

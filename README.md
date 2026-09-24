@@ -45,15 +45,23 @@ npm run build:single  # 产出 Fretboard-Lab.html（自包含单文件，双击�
 #### ① 双击 `Fretboard-Lab.html`（推荐，零依赖）
 
 ```bash
-npm run build:single   # 生成 Fretboard-Lab.html（约 226 KB 自包含单文件）
+npm run dev            # 起 dev server 时会顺带重新生成它（predev 钩子）
+npm run build:single   # 只想要单文件、不想起 dev server 时用这条
 ```
 
 生成后**双击它就直接进网站**：不需要 dev server、不需要联网、不占端口。
-可以复制到桌面 / U 盘 / 直接发给别人。改过源码后重新跑一次这条命令即可。
+可以复制到桌面 / U 盘 / 直接发给别人。
 
-> **从 GitHub clone 下来的人注意**：`Fretboard-Lab.html` 是构建产物，按设计不进版本库
-> （见 `.gitignore`），所以 clone 之后没有这个文件，必须先 `npm install && npm run build:single`
-> 才能拿到单文件版。想要在线玩的链接见「部署到线上」一章。
+> **它是构建产物，不会自己更新。** 这是最容易踩的坑：改完源码忘了重新生成，
+> 打开的还是旧版本，而文件看起来一切正常 —— 没有任何报错提示你。
+> 所以 `package.json` 里挂了 `"predev": "node scripts/build-single.mjs"`：
+> 跑 `npm run dev`（或双击 `练琴.cmd`）时会先重建一次（约 50ms），
+> 启动日志里会多一行「✅ 生成 Fretboard-Lab.html」。
+> 只用单文件版、完全不起 dev server 的人才需要手动跑 `build:single`。
+
+> **从 GitHub clone 下来的人注意**：`Fretboard-Lab.html` 按设计不进版本库
+> （见 `.gitignore`），所以 clone 之后没有这个文件，必须先 `npm install && npm run dev`
+> （或 `npm run build:single`）才能拿到单文件版。想要在线玩的链接见「部署到线上」一章。
 
 已验证（真实 Chrome，`file://` 协议）：
 `localStorage=ok`、React 成功挂载、`elementFromPoint` 命中 `.fb-hit` 热区、
